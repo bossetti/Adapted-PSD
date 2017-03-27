@@ -1,0 +1,82 @@
+function [x,q3]=desconvolabck(wl0,ab,wl_bulk,alpha_bulk)
+%inicializar constantes
+wlo_m = wl0*10^-9;      %conversion to [m]
+h = 4.1357*10^-15;      %Planck's constant / [ev s]
+c_light = 300*10^6;     %speed of light / [m s^-1]
+E = h*c_light./wlo_m;   %calculation of energies from wavelengths by h*c/lambda
+E0 =3.35;              %bulk bandgap del material BULK
+dE = E - E0;            %calculation of energy differences
+
+%inicializar TBM
+
+a = 1/0.137;                %[nm]; cf. Table S5_1
+c = -0.26/0.137;               %[-]; cf. Table S5_1
+                 %[nm]; cf. Table S5_1
+%x = sqrt(((1./dE)-0.206)/0.137);        %ajuste de band gap CdTe
+%x=(1.38435-0.00066*wl0)./(1-0.00121*wl0); % ajuste de pico absorbancia
+%CdTe
+ 
+p0=[18.1/100 41.4/100 -0.8/100] %TBM ajuste de Viswanatha (todavia no pude corregir raíces imaginarias)
+for i=1:length(dE)
+    
+    p(i,:)=dE(i).*p0;
+    p(i,3)=p(i,3)-1;
+end
+for i=1:size(p,1)
+    m=roots(p(i,:))
+    x(i)=max(m);
+end
+%x=(1.67./dE).^(1/1.4);
+x_diff = abs(diff(x));   %calculation of particle size intervals
+
+x_diff = [x_diff  x_diff(end)];     %ensures correct length of vector SI TIRA ERROR DE DIMENSIONS, PONERLE UN ASTERISCO DE TRANSPONER AL x_diff DE ESTA LINEA
+
+ab_new = ab*h*c_light./(E).^2;                        %starting vector for deconvolution SI SE CORRIGIO EL TRANSPUESTO ARRIBA, ACA TAMBIEN CORREGIR
+
+%comienza loop RECORDAR NO ESTOY USANDO dc
+
+for i=1:length(ab)
+    J=length(ab)-i+1;
+    % Calculation of bulk absorption on an energy scale    
+    wl_bulk_m = wl_bulk.*10^-9;    %conversion to [m]
+    E_bulk = h*c_light./wl_bulk_m; %calculation of energies from wavelengths (see line 9)
+    E_peak =3.5;              %energy at the maximum of the first excitonic transition
+                                   %of the bulk absorption coefficient    
+   
+    delta_E = E(J) - E_peak;       %calculation of energy difference for which the bulk absortion has to be shifted
+    E_shift = E_bulk + delta_E;    %increase of the energy entries by delta_E;
+                                   %in principle the y-values are kept constant and the x-axis is shifted by delta_E
+
+% a further processing is necessary to correlate the shifted entries of the bulk absorption 
+% described by vector [E_shift, alpha_bulk] with the correct entries in the energy vector E;
+% therefore a further loop is applied that connects the values of [E_shift, alpha_bulk] 
+% to the discrete values in the vector [E, ab_new]; 
+% otherwise, this would cause an error in line 54 of PSDUVVIS when the subtraction is 
+% performed as [ab_new] and [alpha] would have different lenghts;    
+    
+    for j = 1:length(E)                                     %loop that goes along all measured energies
+        findEntry = (find(E_shift <= E(j),1,'First'));      %position of the first entry in the shifted energies that is smaller or equal to the energy under consideration
+        if (isempty(findEntry))
+            alpha(j)=0;
+        else                                                %finds the correct absorption value that belongs to E_shift
+            alpha(j)=alpha_bulk(findEntry);                 % --> stepwise creation of shifted absorption coefficient for one measurement point
+        end
+    end
+  
+
+ %g(i) = ab_new(i)/x_diff(i);                                %calculation of g3(i) (cf. Eq. 5)
+ %alpha = alpha/alpha(i);                                    %normalization of the shifted absorbance to 1 at point i (=position of first excitonic transition)
+ %ab_new = max(0,ab_new-ab_new(i)*alpha');                   %calculation of new spectrum for next iteration step without the contribution of the largest size fraction;
+             
+ size(alpha)
+ size(ab_new)
+ g(J) = ab_new(J)/(x_diff(J)*alpha(J));         %calculation of g3(i) (cf. Eq. 5)
+ ab_prima=alpha.*ab_new(J)/ alpha(J)  ;    
+ 
+ ab_new = max(0,ab_new-ab_prima');                   %calculation of new spectrum for next iteration step without the contribution of the largest size fraction;
+                                                            %max(...)prevents negative entries due to the assumed shape of the partial spectra  
+end
+
+% Normalization to unity
+C_1 = sum(x_diff.*g);          %calculation of area below g
+q3 = g/C_1;                    %calculation of y-entries in PSD
